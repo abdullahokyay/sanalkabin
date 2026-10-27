@@ -2,11 +2,13 @@ import os
 import shutil
 import gradio as gr
 from src.tryon import run_tryon
-from src.fit import report, DEFAULT_CHART
+from src.fit import report, load_chart, DEFAULT_CHART
 from src.compare import build_compare
+from src.heatmap import build_heatmap
 
 GARMENT_DIR = "assets/garments"
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
+LEGEND = "🟥 Dar &nbsp;&nbsp; 🟧 Sınırda / kısa &nbsp;&nbsp; 🟩 Uygun &nbsp;&nbsp; 🟦 Bol / uzun"
 
 
 def list_garments():
@@ -23,8 +25,21 @@ def update_preview(name):
     return garment_path(name)
 
 
-def analyze(garment_name, size, chest, waist, shoulder, height, preference):
-    return report(size, garment_name, chest, waist, shoulder, height, preference)
+def make_heat(image_path, garment_name, size, chest, waist, shoulder, height):
+    os.makedirs("outputs", exist_ok=True)
+    chart = load_chart(garment_name)
+    heat_img, heat_md = build_heatmap(image_path, chart, size, chest, waist, shoulder, height)
+    heat_path = os.path.join("outputs", "heatmap.png")
+    heat_img.save(heat_path)
+    return heat_path, heat_md
+
+
+def analyze(person_path, garment_name, size, chest, waist, shoulder, height, preference):
+    fit_text = report(size, garment_name, chest, waist, shoulder, height, preference)
+    if person_path is None:
+        return fit_text, None, ""
+    heat_path, heat_md = make_heat(person_path, garment_name, size, chest, waist, shoulder, height)
+    return fit_text, heat_path, heat_md
 
 
 def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulder, height, preference):
@@ -39,7 +54,9 @@ def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulde
     shutil.copy(out, final)
     name = None if custom_garment else garment_name
     compare_html = build_compare(person_path, final)
-    return final, compare_html, report(size, name, chest, waist, shoulder, height, preference)
+    heat_path, heat_md = make_heat(final, name, size, chest, waist, shoulder, height)
+    fit_text = report(size, name, chest, waist, shoulder, height, preference)
+    return final, compare_html, fit_text, heat_path, heat_md
 
 
 garments = list_garments()
@@ -68,10 +85,22 @@ with gr.Blocks(title="Sanal Kabin") as demo:
             gr.Markdown("### Önce / Sonra (sürükleyerek karşılaştır)")
             compare = gr.HTML()
             result = gr.Image(label="Sonuç")
+            gr.Markdown("### Beden uyum ısı haritası")
+            gr.Markdown(LEGEND)
+            heat_img = gr.Image(label="Isı haritası")
+            heat_md = gr.Markdown()
             fit_md = gr.Markdown()
     garment_dd.change(update_preview, garment_dd, preview)
-    btn.click(tryon, [person, garment_dd, custom, size, chest, waist, shoulder, height, pref], [result, compare, fit_md])
-    btn2.click(analyze, [garment_dd, size, chest, waist, shoulder, height, pref], fit_md)
+    btn.click(
+        tryon,
+        [person, garment_dd, custom, size, chest, waist, shoulder, height, pref],
+        [result, compare, fit_md, heat_img, heat_md],
+    )
+    btn2.click(
+        analyze,
+        [person, garment_dd, size, chest, waist, shoulder, height, pref],
+        [fit_md, heat_img, heat_md],
+    )
 
 if __name__ == "__main__":
     demo.launch(share=True)
