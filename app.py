@@ -7,7 +7,9 @@ from src.compare import build_compare
 from src.heatmap import build_heatmap
 from src.measure import estimate
 
-GARMENT_DIR = "assets/garments"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+GARMENT_DIR = os.path.join(BASE_DIR, "assets", "garments")
+OUT_DIR = os.path.join(BASE_DIR, "outputs")
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
 LEGEND = "🟥 Dar &nbsp;&nbsp; 🟧 Sınırda / kısa &nbsp;&nbsp; 🟩 Uygun &nbsp;&nbsp; 🟦 Bol / uzun"
 
@@ -37,8 +39,8 @@ def measure_from_photo(person_path, height):
         values, annotated, warnings = estimate(person_path, height)
     except RuntimeError as e:
         raise gr.Error(str(e))
-    os.makedirs("outputs", exist_ok=True)
-    path = os.path.join("outputs", "measure.png")
+    os.makedirs(OUT_DIR, exist_ok=True)
+    path = os.path.join(OUT_DIR, "measure.png")
     annotated.save(path)
     shoulder = clamp(values["shoulder"], 30, 60)
     chest = clamp(values["chest"], 70, 140)
@@ -56,10 +58,10 @@ def measure_from_photo(person_path, height):
 
 
 def make_heat(image_path, garment_name, size, chest, waist, shoulder, height):
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(OUT_DIR, exist_ok=True)
     chart = load_chart(garment_name)
     heat_img, heat_md = build_heatmap(image_path, chart, size, chest, waist, shoulder, height)
-    heat_path = os.path.join("outputs", "heatmap.png")
+    heat_path = os.path.join(OUT_DIR, "heatmap.png")
     heat_img.save(heat_path)
     return heat_path, heat_md
 
@@ -78,15 +80,21 @@ def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulde
     chosen = custom_garment or garment_path(garment_name)
     if chosen is None:
         raise gr.Error("Katalogdan bir kıyafet seç veya kendi kıyafet fotoğrafını yükle.")
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(OUT_DIR, exist_ok=True)
     out = run_tryon(person_path, chosen)
-    final = os.path.join("outputs", "result.png")
+    final = os.path.join(OUT_DIR, "result.png")
     shutil.copy(out, final)
     name = None if custom_garment else garment_name
     compare_html = build_compare(person_path, final)
     heat_path, heat_md = make_heat(final, name, size, chest, waist, shoulder, height)
     fit_text = report(size, name, chest, waist, shoulder, height, preference)
     return final, compare_html, fit_text, heat_path, heat_md
+
+
+def refresh_catalog():
+    items = list_garments()
+    first = items[0] if items else None
+    return gr.update(choices=items, value=first), garment_path(first)
 
 
 garments = list_garments()
@@ -123,6 +131,7 @@ with gr.Blocks(title="Sanal Kabin") as demo:
             heat_img = gr.Image(label="Isı haritası")
             heat_md = gr.Markdown()
             fit_md = gr.Markdown()
+    demo.load(refresh_catalog, None, [garment_dd, preview])
     garment_dd.change(update_preview, garment_dd, preview)
     measure_btn.click(
         measure_from_photo,
