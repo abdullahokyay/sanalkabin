@@ -3,6 +3,7 @@ import shutil
 import gradio as gr
 from src.tryon import run_tryon
 from src.fit import report, DEFAULT_CHART
+from src.compare import build_compare
 
 GARMENT_DIR = "assets/garments"
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
@@ -37,7 +38,8 @@ def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulde
     final = os.path.join("outputs", "result.png")
     shutil.copy(out, final)
     name = None if custom_garment else garment_name
-    return final, report(size, name, chest, waist, shoulder, height, preference)
+    compare_html = build_compare(person_path, final)
+    return final, compare_html, report(size, name, chest, waist, shoulder, height, preference)
 
 
 garments = list_garments()
@@ -63,10 +65,12 @@ with gr.Blocks(title="Sanal Kabin") as demo:
             btn = gr.Button("Sanal kabinde dene", variant="primary")
             btn2 = gr.Button("Sadece beden analizi (hızlı)")
         with gr.Column():
+            gr.Markdown("### Önce / Sonra (sürükleyerek karşılaştır)")
+            compare = gr.HTML()
             result = gr.Image(label="Sonuç")
             fit_md = gr.Markdown()
     garment_dd.change(update_preview, garment_dd, preview)
-    btn.click(tryon, [person, garment_dd, custom, size, chest, waist, shoulder, height, pref], [result, fit_md])
+    btn.click(tryon, [person, garment_dd, custom, size, chest, waist, shoulder, height, pref], [result, compare, fit_md])
     btn2.click(analyze, [garment_dd, size, chest, waist, shoulder, height, pref], fit_md)
 
 if __name__ == "__main__":
