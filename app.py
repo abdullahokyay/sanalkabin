@@ -1,7 +1,6 @@
 import os
-import shutil
 import gradio as gr
-from src.tryon import run_tryon
+from src.combo import run_layers
 from src.fit import report, load_chart, DEFAULT_CHART
 from src.compare import build_compare
 from src.heatmap import build_heatmap
@@ -11,6 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GARMENT_DIR = os.path.join(BASE_DIR, "assets", "garments")
 OUT_DIR = os.path.join(BASE_DIR, "outputs")
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
+NONE_LABEL = "Yok"
 LEGEND = "🟥 Dar &nbsp;&nbsp; 🟧 Sınırda / kısa &nbsp;&nbsp; 🟩 Uygun &nbsp;&nbsp; 🟦 Bol / uzun"
 
 
@@ -21,11 +21,25 @@ def list_garments():
 
 
 def garment_path(name):
-    return os.path.join(GARMENT_DIR, name) if name else None
+    if not name or name == NONE_LABEL:
+        return None
+    path = os.path.join(GARMENT_DIR, name)
+    return path if os.path.exists(path) else None
 
 
 def update_preview(name):
     return garment_path(name)
+
+
+def refresh_catalog():
+    items = list_garments()
+    first = items[0] if items else None
+    return (
+        gr.update(choices=items, value=first),
+        garment_path(first),
+        gr.update(choices=[NONE_LABEL] + items, value=NONE_LABEL),
+        None,
+    )
 
 
 def clamp(value, low, high):
@@ -74,34 +88,34 @@ def analyze(person_path, garment_name, size, chest, waist, shoulder, height, pre
     return fit_text, heat_path, heat_md
 
 
-def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulder, height, preference):
+def tryon(person_path, garment1, custom1, garment2, size1, size2, chest, waist, shoulder, height, preference):
     if person_path is None:
         raise gr.Error("Lütfen önce kendi fotoğrafını yükle.")
-    chosen = custom_garment or garment_path(garment_name)
-    if chosen is None:
-        raise gr.Error("Katalogdan bir kıyafet seç veya kendi kıyafet fotoğrafını yükle.")
-    os.makedirs(OUT_DIR, exist_ok=True)
-    out = run_tryon(person_path, chosen)
-    final = os.path.join(OUT_DIR, "result.png")
-    shutil.copy(out, final)
-    name = None if custom_garment else garment_name
+    first = custom1 or garment_path(garment1)
+    if first is None:
+        raise gr.Error("1. katman için katalogdan bir kıyafet seç veya kendi kıyafet fotoğrafını yükle.")
+    layers = [first]
+    second = garment_path(garment2)
+    if second:
+        layers.append(second)
+    final, steps = run_layers(person_path, layers, OUT_DIR)
     compare_html = build_compare(person_path, final)
-    heat_path, heat_md = make_heat(final, name, size, chest, waist, shoulder, height)
-    fit_text = report(size, name, chest, waist, shoulder, height, preference)
-    return final, compare_html, fit_text, heat_path, heat_md
-
-
-def refresh_catalog():
-    items = list_garments()
-    first = items[0] if items else None
-    return gr.update(choices=items, value=first), garment_path(first)
+    name1 = None if custom1 else garment1
+    heat_name = garment2 if second else name1
+    heat_size = size2 if second else size1
+    heat_path, heat_md = make_heat(final, heat_name, heat_size, chest, waist, shoulder, height)
+    fit_text = report(size1, name1, chest, waist, shoulder, height, preference)
+    if second:
+        fit_text = "## 1. katman\n\n" + fit_text + "\n\n---\n\n## 2. katman (" + garment2 + ")\n\n"
+        fit_text += report(size2, garment2, chest, waist, shoulder, height, preference)
+    return final, steps, compare_html, fit_text, heat_path, heat_md
 
 
 garments = list_garments()
 sizes = list(DEFAULT_CHART.keys())
 
 with gr.Blocks(title="Sanal Kabin") as demo:
-    gr.Markdown("# Sanal Kabin\nFotoğrafını yükle, kıyafeti ve bedeni seç; hem görünümü hem beden uyumunu gör.")
+    gr.Markdown("# Sanal Kabin\nFotoğrafını yükle, kıyafetleri ve bedenleri seç; kombinini ve beden uyumunu gör.")
     with gr.Row():
         with gr.Column():
             person = gr.Image(type="filepath", label="Senin fotoğrafın (boydan, karşıdan, kollar hafif açık)")
@@ -115,24 +129,31 @@ with gr.Blocks(title="Sanal Kabin") as demo:
             measure_md = gr.Markdown()
             measure_img = gr.Image(label="Ölçüm görseli")
         with gr.Column():
-            garment_dd = gr.Dropdown(choices=garments, value=garments[0] if garments else None, label="Kıyafet kataloğu")
-            preview = gr.Image(value=garment_path(garments[0]) if garments else None, label="Seçilen ürün", interactive=False)
-            custom = gr.Image(type="filepath", label="Veya kendi kıyafet fotoğrafını yükle (opsiyonel)")
-            size = gr.Radio(sizes, value="M", label="Denemek istediğin beden")
+            gr.Markdown("### 1. katman (altta: tişört, gömlek)")
+            garment1 = gr.Dropdown(choices=garments, value=garments[0] if garments else None, label="Kıyafet kataloğu")
+            preview1 = gr.Image(value=garment_path(garments[0]) if garments else None, label="Seçilen ürün", interactive=False)
+            custom1 = gr.Image(type="filepath", label="Veya kendi kıyafet fotoğrafını yükle (opsiyonel)")
+            size1 = gr.Radio(sizes, value="M", label="1. katman bedeni")
+            gr.Markdown("### 2. katman (üstte: ceket, hırka, opsiyonel)")
+            garment2 = gr.Dropdown(choices=[NONE_LABEL] + garments, value=NONE_LABEL, label="Üst katman")
+            preview2 = gr.Image(label="Seçilen üst katman", interactive=False)
+            size2 = gr.Radio(sizes, value="L", label="2. katman bedeni")
             pref = gr.Radio(["Vücuda oturan", "Normal", "Bol"], value="Normal", label="Kalıp tercihin")
             btn = gr.Button("Sanal kabinde dene", variant="primary")
-            btn2 = gr.Button("Sadece beden analizi (hızlı)")
+            btn2 = gr.Button("Sadece beden analizi (1. katman, hızlı)")
         with gr.Column():
             gr.Markdown("### Önce / Sonra (sürükleyerek karşılaştır)")
             compare = gr.HTML()
             result = gr.Image(label="Sonuç")
+            steps_gallery = gr.Gallery(label="Katman katman sonuç", columns=2, height=260)
             gr.Markdown("### Beden uyum ısı haritası")
             gr.Markdown(LEGEND)
             heat_img = gr.Image(label="Isı haritası")
             heat_md = gr.Markdown()
             fit_md = gr.Markdown()
-    demo.load(refresh_catalog, None, [garment_dd, preview])
-    garment_dd.change(update_preview, garment_dd, preview)
+    demo.load(refresh_catalog, None, [garment1, preview1, garment2, preview2])
+    garment1.change(update_preview, garment1, preview1)
+    garment2.change(update_preview, garment2, preview2)
     measure_btn.click(
         measure_from_photo,
         [person, height],
@@ -140,12 +161,12 @@ with gr.Blocks(title="Sanal Kabin") as demo:
     )
     btn.click(
         tryon,
-        [person, garment_dd, custom, size, chest, waist, shoulder, height, pref],
-        [result, compare, fit_md, heat_img, heat_md],
+        [person, garment1, custom1, garment2, size1, size2, chest, waist, shoulder, height, pref],
+        [result, steps_gallery, compare, fit_md, heat_img, heat_md],
     )
     btn2.click(
         analyze,
-        [person, garment_dd, size, chest, waist, shoulder, height, pref],
+        [person, garment1, size1, chest, waist, shoulder, height, pref],
         [fit_md, heat_img, heat_md],
     )
 
