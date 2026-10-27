@@ -2,57 +2,72 @@ import os
 import shutil
 import gradio as gr
 from src.tryon import run_tryon
+from src.fit import report, DEFAULT_CHART
 
 GARMENT_DIR = "assets/garments"
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
 
 def list_garments():
     if not os.path.isdir(GARMENT_DIR):
         return []
     return sorted(f for f in os.listdir(GARMENT_DIR) if f.lower().endswith(EXTS))
 
+
 def garment_path(name):
     return os.path.join(GARMENT_DIR, name) if name else None
+
 
 def update_preview(name):
     return garment_path(name)
 
-def tryon(person_path, garment_name, custom_garment, height, weight, shoulder, waist):
+
+def analyze(garment_name, size, chest, waist, shoulder, height, preference):
+    return report(size, garment_name, chest, waist, shoulder, height, preference)
+
+
+def tryon(person_path, garment_name, custom_garment, size, chest, waist, shoulder, height, preference):
     if person_path is None:
-        raise gr.Error("Lutfen once kendi fotografini yukle.")
+        raise gr.Error("Lütfen önce kendi fotoğrafını yükle.")
     chosen = custom_garment or garment_path(garment_name)
     if chosen is None:
-        raise gr.Error("Katalogdan bir kiyafet sec veya kendi kiyafet fotografini yukle.")
+        raise gr.Error("Katalogdan bir kıyafet seç veya kendi kıyafet fotoğrafını yükle.")
     os.makedirs("outputs", exist_ok=True)
     out = run_tryon(person_path, chosen)
     final = os.path.join("outputs", "result.png")
     shutil.copy(out, final)
-    info = f"Tamamlandi. Olculer: boy {height} cm, kilo {weight} kg, omuz {shoulder} cm, bel {waist} cm"
-    return final, info
+    name = None if custom_garment else garment_name
+    return final, report(size, name, chest, waist, shoulder, height, preference)
+
 
 garments = list_garments()
+sizes = list(DEFAULT_CHART.keys())
 
 with gr.Blocks(title="Sanal Kabin") as demo:
-    gr.Markdown("# Sanal Kabin\nFotografini yukle, kiyafeti sec, ayni kisinin o kiyafeti giymis halini gor.")
+    gr.Markdown("# Sanal Kabin\nFotoğrafını yükle, kıyafeti ve bedeni seç; hem görünümü hem beden uyumunu gör.")
     with gr.Row():
         with gr.Column():
-            person = gr.Image(type="filepath", label="Senin fotografin (karsidan, ayakta, kollar yanda)")
+            person = gr.Image(type="filepath", label="Senin fotoğrafın (karşıdan, ayakta, kollar yanda)")
             with gr.Row():
                 height = gr.Slider(140, 210, value=175, step=1, label="Boy (cm)")
-                weight = gr.Slider(40, 140, value=70, step=1, label="Kilo (kg)")
+                chest = gr.Slider(70, 140, value=98, step=1, label="Göğüs çevresi (cm)")
             with gr.Row():
-                shoulder = gr.Slider(30, 60, value=44, step=1, label="Omuz (cm)")
-                waist = gr.Slider(50, 120, value=78, step=1, label="Bel (cm)")
+                shoulder = gr.Slider(30, 60, value=44, step=1, label="Omuz genişliği (cm)")
+                waist = gr.Slider(50, 130, value=84, step=1, label="Bel çevresi (cm)")
         with gr.Column():
-            garment_dd = gr.Dropdown(choices=garments, value=garments[0] if garments else None, label="Kiyafet katalogu")
-            preview = gr.Image(value=garment_path(garments[0]) if garments else None, label="Secilen urun", interactive=False)
-            custom = gr.Image(type="filepath", label="Veya kendi kiyafet fotografini yukle (opsiyonel)")
+            garment_dd = gr.Dropdown(choices=garments, value=garments[0] if garments else None, label="Kıyafet kataloğu")
+            preview = gr.Image(value=garment_path(garments[0]) if garments else None, label="Seçilen ürün", interactive=False)
+            custom = gr.Image(type="filepath", label="Veya kendi kıyafet fotoğrafını yükle (opsiyonel)")
+            size = gr.Radio(sizes, value="M", label="Denemek istediğin beden")
+            pref = gr.Radio(["Vücuda oturan", "Normal", "Bol"], value="Normal", label="Kalıp tercihin")
             btn = gr.Button("Sanal kabinde dene", variant="primary")
+            btn2 = gr.Button("Sadece beden analizi (hızlı)")
         with gr.Column():
-            result = gr.Image(label="Sonuc")
-            status = gr.Textbox(label="Durum", interactive=False)
+            result = gr.Image(label="Sonuç")
+            fit_md = gr.Markdown()
     garment_dd.change(update_preview, garment_dd, preview)
-    btn.click(tryon, [person, garment_dd, custom, height, weight, shoulder, waist], [result, status])
+    btn.click(tryon, [person, garment_dd, custom, size, chest, waist, shoulder, height, pref], [result, fit_md])
+    btn2.click(analyze, [garment_dd, size, chest, waist, shoulder, height, pref], fit_md)
 
 if __name__ == "__main__":
     demo.launch(share=True)
