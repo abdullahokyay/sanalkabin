@@ -48,11 +48,9 @@ def length_state(d):
 
 def find_landmarks(img):
     try:
-        import mediapipe as mp
-        arr = np.array(img.convert("RGB"))
-        with mp.solutions.pose.Pose(static_image_mode=True, model_complexity=1) as pose:
-            res = pose.process(arr)
-        if res.pose_landmarks:
+        from src.pose import run_pose
+        res = run_pose(img)
+        if res.pose_landmarks is not None:
             lm = res.pose_landmarks.landmark
             idx = {"ls": 11, "rs": 12, "lh": 23, "rh": 24}
             return {k: (lm[i].x, lm[i].y) for k, i in idx.items()}, True

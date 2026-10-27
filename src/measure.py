@@ -1,3 +1,4 @@
+from src.pose import run_pose
 import math
 import numpy as np
 from PIL import Image, ImageDraw
@@ -33,17 +34,6 @@ def run_at(mask, y, x_mid):
     dists = [min(abs(s - x_mid), abs(e - x_mid)) for s, e in zip(starts, ends)]
     i = int(np.argmin(dists))
     return int(starts[i]), int(ends[i])
-
-
-def run_pose(img):
-    try:
-        import mediapipe as mp
-        solutions = mp.solutions
-    except Exception:
-        raise RuntimeError("MediaPipe yüklenemedi veya bu sürümde desteklenmiyor.")
-    arr = np.array(img)
-    with solutions.pose.Pose(static_image_mode=True, model_complexity=2, enable_segmentation=True) as pose:
-        return pose.process(arr)
 
 
 def estimate(image_path, height_cm):
