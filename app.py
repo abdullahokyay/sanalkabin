@@ -5,6 +5,7 @@ from src.tryon import run_tryon
 from src.fit import report, load_chart, DEFAULT_CHART
 from src.compare import build_compare
 from src.heatmap import build_heatmap
+from src.measure import estimate
 
 GARMENT_DIR = "assets/garments"
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
@@ -23,6 +24,35 @@ def garment_path(name):
 
 def update_preview(name):
     return garment_path(name)
+
+
+def clamp(value, low, high):
+    return int(round(min(max(value, low), high)))
+
+
+def measure_from_photo(person_path, height):
+    if person_path is None:
+        raise gr.Error("Önce kendi fotoğrafını yükle.")
+    try:
+        values, annotated, warnings = estimate(person_path, height)
+    except RuntimeError as e:
+        raise gr.Error(str(e))
+    os.makedirs("outputs", exist_ok=True)
+    path = os.path.join("outputs", "measure.png")
+    annotated.save(path)
+    shoulder = clamp(values["shoulder"], 30, 60)
+    chest = clamp(values["chest"], 70, 140)
+    waist = clamp(values["waist"], 50, 130)
+    lines = ["**Fotoğraftan tahmin edilen ölçüler (yaklaşık ±3-5 cm):**", ""]
+    lines.append("- Omuz genişliği: **" + str(shoulder) + " cm**")
+    lines.append("- Göğüs çevresi: **" + str(chest) + " cm**")
+    lines.append("- Bel çevresi: **" + str(waist) + " cm**")
+    lines.append("")
+    lines.append("Sürgüler güncellendi, istersen elle düzeltebilirsin.")
+    for w in warnings:
+        lines.append("")
+        lines.append("⚠️ " + w)
+    return shoulder, chest, waist, "\n".join(lines), path
 
 
 def make_heat(image_path, garment_name, size, chest, waist, shoulder, height):
@@ -66,13 +96,16 @@ with gr.Blocks(title="Sanal Kabin") as demo:
     gr.Markdown("# Sanal Kabin\nFotoğrafını yükle, kıyafeti ve bedeni seç; hem görünümü hem beden uyumunu gör.")
     with gr.Row():
         with gr.Column():
-            person = gr.Image(type="filepath", label="Senin fotoğrafın (karşıdan, ayakta, kollar yanda)")
+            person = gr.Image(type="filepath", label="Senin fotoğrafın (boydan, karşıdan, kollar hafif açık)")
             with gr.Row():
                 height = gr.Slider(140, 210, value=175, step=1, label="Boy (cm)")
                 chest = gr.Slider(70, 140, value=98, step=1, label="Göğüs çevresi (cm)")
             with gr.Row():
                 shoulder = gr.Slider(30, 60, value=44, step=1, label="Omuz genişliği (cm)")
                 waist = gr.Slider(50, 130, value=84, step=1, label="Bel çevresi (cm)")
+            measure_btn = gr.Button("📏 Ölçülerimi fotoğraftan tahmin et")
+            measure_md = gr.Markdown()
+            measure_img = gr.Image(label="Ölçüm görseli")
         with gr.Column():
             garment_dd = gr.Dropdown(choices=garments, value=garments[0] if garments else None, label="Kıyafet kataloğu")
             preview = gr.Image(value=garment_path(garments[0]) if garments else None, label="Seçilen ürün", interactive=False)
@@ -91,6 +124,11 @@ with gr.Blocks(title="Sanal Kabin") as demo:
             heat_md = gr.Markdown()
             fit_md = gr.Markdown()
     garment_dd.change(update_preview, garment_dd, preview)
+    measure_btn.click(
+        measure_from_photo,
+        [person, height],
+        [shoulder, chest, waist, measure_md, measure_img],
+    )
     btn.click(
         tryon,
         [person, garment_dd, custom, size, chest, waist, shoulder, height, pref],
